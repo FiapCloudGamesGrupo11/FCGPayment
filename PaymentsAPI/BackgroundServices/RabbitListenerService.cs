@@ -88,7 +88,7 @@ public class RabbitListenerService : BackgroundService
 
         if (_channel == null)
         {
-            _logger.LogWarning("⚠️ Canal do RabbitMQ não inicializado. O processamento de eventos não começará.");
+            _logger.LogWarning("Canal do RabbitMQ não inicializado. O processamento de eventos não começará.");
             return Task.CompletedTask;
         }
 
