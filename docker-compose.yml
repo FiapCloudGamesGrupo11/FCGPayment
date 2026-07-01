@@ -18,5 +18,22 @@ services:
       timeout: 5s
       retries: 5
 
+  paymentsapi:
+    image: paymentsapi:latest
+    container_name: dotnet_payments_api
+    build:
+      context: .
+      dockerfile: PaymentsAPI/Dockerfile
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - RabbitMQ__Url=amqp://guest:guest@dotnet_payments_rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
 volumes:
   rabbitmq_data:
+
