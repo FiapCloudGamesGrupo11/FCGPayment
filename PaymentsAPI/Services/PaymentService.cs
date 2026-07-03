@@ -57,6 +57,8 @@ public class PaymentService : IPaymentService
         {
             OrderId = order.OrderId,
             PaymentId = paymentId,
+            UserId = order.UserId,
+            GameId = order.GameId,
             Amount = order.Amount,
             Status = status,
             Reason = reason,

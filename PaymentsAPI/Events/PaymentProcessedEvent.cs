@@ -9,6 +9,12 @@ public class PaymentProcessedEvent
 
     [JsonPropertyName("paymentId")]
     public string PaymentId { get; set; } = string.Empty;
+    
+    [JsonPropertyName("userId")]
+    public string UserId { get; set; } = string.Empty;
+
+    [JsonPropertyName("gameId")]
+    public string GameId { get; set; } = string.Empty;
 
     [JsonPropertyName("amount")]
     public decimal Amount { get; set; }
