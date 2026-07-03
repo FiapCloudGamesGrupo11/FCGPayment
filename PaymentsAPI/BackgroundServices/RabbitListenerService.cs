@@ -16,6 +16,8 @@ public class RabbitListenerService : BackgroundService
     private IModel? _channel;
 
     private readonly string _rabbitUrl;
+    private readonly string _rabbitUser;
+    private readonly string _rabbitPass;
     private readonly string _orderExchange;
     private readonly string _paymentExchange;
     private readonly string _orderPlacedQueue;
@@ -33,7 +35,9 @@ public class RabbitListenerService : BackgroundService
         _logger = logger;
 
         // Recuperando configurações do appsettings
-        _rabbitUrl = _configuration["RabbitMQ:Url"] ?? "amqp://guest:guest@localhost:5672";
+        _rabbitUrl = _configuration["RabbitMQ:Url"] ?? "amqp://guest:guest@rabbitmq:5672";
+        _rabbitUser = _configuration["RabbitMQ:User"] ?? "guest";
+        _rabbitPass = _configuration["RabbitMQ:Pass"] ?? "guest";
         _orderExchange = _configuration["RabbitMQ:OrderExchange"] ?? "order.exchange";
         _paymentExchange = _configuration["RabbitMQ:PaymentExchange"] ?? "payment.exchange";
         _orderPlacedQueue = _configuration["RabbitMQ:OrderPlacedQueue"] ?? "order.placed.payment-service";
@@ -52,9 +56,9 @@ public class RabbitListenerService : BackgroundService
 
             var factory = new ConnectionFactory
             {
-                Uri = new Uri(_rabbitUrl),
-                AutomaticRecoveryEnabled = true, // Reconexão automática em caso de falha na rede
-                NetworkRecoveryInterval = TimeSpan.FromSeconds(5)
+                HostName = _rabbitUrl,
+                UserName = _rabbitUser,
+                Password = _rabbitPass
             };
 
             _connection = factory.CreateConnection();

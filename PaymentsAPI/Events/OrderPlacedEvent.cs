@@ -4,22 +4,25 @@ namespace PaymentsAPI.Events;
 
 public class OrderPlacedEvent
 {
-    [JsonPropertyName("orderId")]
-    public string OrderId { get; set; } = string.Empty;
+    [JsonPropertyName("OrderId")]
+    public string? OrderId { get; set; }
 
-    [JsonPropertyName("userId")]
+    [JsonPropertyName("UserId")]
     public string UserId { get; set; } = string.Empty;
 
-    [JsonPropertyName("gameId")]
+    [JsonPropertyName("GameId")]
     public string GameId { get; set; } = string.Empty;
 
-    [JsonPropertyName("amount")]
+    [JsonPropertyName("Amount")]
     public decimal Amount { get; set; }
+    
+    [JsonPropertyName("Price")]
+    public decimal Price { get; set; }
 
-    [JsonPropertyName("createdAt")]
+    [JsonPropertyName("CreatedAt")]
     public DateTime CreatedAt { get; set; }
 
-    [JsonPropertyName("paymentDetails")]
+    [JsonPropertyName("PaymentDetails")]
     public PaymentDetailsDto PaymentDetails { get; set; } = new();
 }
 

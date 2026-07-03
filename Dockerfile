@@ -2,8 +2,8 @@
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
 USER app
 WORKDIR /app
-EXPOSE 8080
-EXPOSE 8081
+EXPOSE 8090
+EXPOSE 8091
 
 # Estágio de build do SDK do .NET
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
