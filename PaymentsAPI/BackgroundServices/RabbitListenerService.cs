@@ -67,14 +67,14 @@ public class RabbitListenerService : BackgroundService
             // Configurando Topologia (Exchanges, Queues e Bindings)
             _logger.LogInformation(" Configurando topologia do RabbitMQ...");
             
-            _channel.ExchangeDeclare(_orderExchange, ExchangeType.Topic, durable: true);
-            _channel.ExchangeDeclare(_paymentExchange, ExchangeType.Topic, durable: true);
+            _channel.ExchangeDeclare(_orderExchange, ExchangeType.Direct, durable: true);
+            _channel.ExchangeDeclare(_paymentExchange, ExchangeType.Fanout, durable: true);
 
             _channel.QueueDeclare(_orderPlacedQueue, durable: true, exclusive: false, autoDelete: false);
-            _channel.QueueDeclare(_paymentProcessedQueue, durable: true, exclusive: false, autoDelete: false);
+            // _channel.QueueDeclare(_paymentProcessedQueue, durable: true, exclusive: false, autoDelete: false);
 
-            _channel.QueueBind(_orderPlacedQueue, _orderExchange, _orderPlacedRoutingKey);
-            _channel.QueueBind(_paymentProcessedQueue, _paymentExchange, _paymentProcessedRoutingKey);
+            // _channel.QueueBind(_orderPlacedQueue, _orderExchange, _orderPlacedRoutingKey);
+            // _channel.QueueBind(_paymentProcessedQueue, _paymentExchange, _paymentProcessedRoutingKey);
 
             _channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false);
 
