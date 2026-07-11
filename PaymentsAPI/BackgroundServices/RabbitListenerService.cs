@@ -13,7 +13,7 @@ public class RabbitListenerService : BackgroundService
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<RabbitListenerService> _logger;
     private IConnection? _connection;
-    private IModel? _channel;
+    private IChannel? _channel;
 
     private readonly string _rabbitUrl;
     private readonly string _rabbitUser;
@@ -46,11 +46,15 @@ public class RabbitListenerService : BackgroundService
         _paymentProcessedQueue = _configuration["RabbitMQ:PaymentProcessedQueue"] ?? "payment.processed.order-service";
         _orderPlacedRoutingKey = _configuration["RabbitMQ:OrderPlacedRoutingKey"] ?? "order.placed";
         _paymentProcessedRoutingKey = _configuration["RabbitMQ:PaymentProcessedRoutingKey"] ?? "payment.processed";
-
-        InitializeRabbitMQ();
     }
 
-    private void InitializeRabbitMQ()
+    public override async Task StartAsync(CancellationToken cancellationToken)
+    {
+        await InitializeRabbitMQ();
+        await base.StartAsync(cancellationToken);
+    }
+
+    private async Task InitializeRabbitMQ()
     {
         try
         {
@@ -58,34 +62,42 @@ public class RabbitListenerService : BackgroundService
 
             var factory = new ConnectionFactory
             {
-                HostName = _rabbitUrl,
-                Port = int.Parse(_rabbitPort),
                 UserName = _rabbitUser,
                 Password = _rabbitPass
             };
 
-            _connection = factory.CreateConnection();
-            _channel = _connection.CreateModel();
+            if (Uri.TryCreate(_rabbitUrl, UriKind.Absolute, out var uri))
+            {
+                factory.Uri = uri;
+            }
+            else
+            {
+                factory.HostName = _rabbitUrl;
+            }
+
+            _connection = await factory.CreateConnectionAsync();
+            _channel = await _connection.CreateChannelAsync();
 
             // Configurando Topologia (Exchanges, Queues e Bindings)
             _logger.LogInformation(" Configurando topologia do RabbitMQ...");
             
-            _channel.ExchangeDeclare(_orderExchange, ExchangeType.Direct, durable: true);
-            _channel.ExchangeDeclare(_paymentExchange, ExchangeType.Fanout, durable: true);
+            // _channel.ExchangeDeclare(_orderExchange, "", durable: true);
+            await _channel.ExchangeDeclareAsync(_paymentExchange, ExchangeType.Fanout, durable: true);
 
-            _channel.QueueDeclare(_orderPlacedQueue, durable: true, exclusive: false, autoDelete: false);
+            await _channel.QueueDeclareAsync(_orderPlacedQueue, durable: true, exclusive: false, autoDelete: false);
             // _channel.QueueDeclare(_paymentProcessedQueue, durable: true, exclusive: false, autoDelete: false);
 
             // _channel.QueueBind(_orderPlacedQueue, _orderExchange, _orderPlacedRoutingKey);
             // _channel.QueueBind(_paymentProcessedQueue, _paymentExchange, _paymentProcessedRoutingKey);
 
-            _channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false);
+            await _channel.BasicQosAsync(prefetchSize: 0,prefetchCount: 1,global: false);
 
             _logger.LogInformation(" Conexão com RabbitMQ estabelecida e topologia configurada com sucesso!");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, " Erro ao inicializar o RabbitMQ. O serviço tentará novamente ao iniciar.");
+            _logger.LogError(ex, "Erro ao inicializar o RabbitMQ. O serviço não iniciará até que a conexão esteja disponível.");
+            throw;
         }
     }
 
@@ -99,8 +111,8 @@ public class RabbitListenerService : BackgroundService
             return Task.CompletedTask;
         }
 
-        var consumer = new EventingBasicConsumer(_channel);
-        consumer.Received += async (model, ea) =>
+        var consumer = new AsyncEventingBasicConsumer(_channel);
+        consumer.ReceivedAsync += async (model, ea) =>
         {
             var body = ea.Body.ToArray();
             var message = Encoding.UTF8.GetString(body);
@@ -124,33 +136,33 @@ public class RabbitListenerService : BackgroundService
                     var resultEvent = await paymentService.ProcessPaymentAsync(orderEvent);
 
                     // 3. Publicar o resultado
-                    PublishPaymentProcessed(resultEvent);
+                    await PublishPaymentProcessed(resultEvent);
                 }
 
                 // 4. Enviar confirmação de recebimento (Ack)
-                _channel.BasicAck(ea.DeliveryTag, multiple: false);
+                await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
                 _logger.LogInformation(" [RabbitListenerService] Mensagem do Pedido {OrderId} confirmada (ACK).\n", orderEvent.OrderId);
             }
             catch (JsonException jsonEx)
             {
                 _logger.LogError(jsonEx, " [RabbitListenerService] Falha de desserialização. Descartando mensagem (ACK de descarte)...");
-                _channel.BasicAck(ea.DeliveryTag, multiple: false); // Descarta mensagem malformada
+                await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false); // Descarta mensagem malformada
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "❌ [RabbitListenerService] Erro ao processar o evento. Reencaminhando mensagem para a fila...");
                 // Reencaminha a mensagem (Requeue = true) em caso de erro temporário de infraestrutura
-                _channel.BasicNack(ea.DeliveryTag, multiple: false, requeue: true);
+                await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true);
             }
         };
 
-        _channel.BasicConsume(queue: _orderPlacedQueue, autoAck: false, consumer: consumer);
+        _channel.BasicConsumeAsync(queue: _orderPlacedQueue, autoAck: false, consumer: consumer);
         _logger.LogInformation("[RabbitListenerService] Iniciando consumo da fila: '{Queue}'", _orderPlacedQueue);
 
         return Task.CompletedTask;
     }
 
-    private void PublishPaymentProcessed(PaymentProcessedEvent resultEvent)
+    private async Task PublishPaymentProcessed(PaymentProcessedEvent resultEvent)
     {
         if (_channel == null) return;
 
@@ -159,13 +171,16 @@ public class RabbitListenerService : BackgroundService
         var json = JsonSerializer.Serialize(resultEvent);
         var body = Encoding.UTF8.GetBytes(json);
 
-        var properties = _channel.CreateBasicProperties();
-        properties.Persistent = true; // Torna a mensagem persistente no disco
-        properties.ContentType = "application/json";
+        var properties = new BasicProperties
+                            {
+                                Persistent = true,
+                                ContentType = "application/json"
+                            };
 
-        _channel.BasicPublish(
+        await _channel.BasicPublishAsync(
             exchange: _paymentExchange,
             routingKey: _paymentProcessedRoutingKey,
+            mandatory: false,
             basicProperties: properties,
             body: body
         );
@@ -175,8 +190,8 @@ public class RabbitListenerService : BackgroundService
 
     public override void Dispose()
     {
-        _channel?.Close();
-        _connection?.Close();
+        _channel?.CloseAsync();
+        _connection?.CloseAsync();
         _logger.LogInformation(" Conexões com o RabbitMQ fechadas de forma limpa.");
         base.Dispose();
     }
