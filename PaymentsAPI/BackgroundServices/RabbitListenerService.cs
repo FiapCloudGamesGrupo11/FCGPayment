@@ -17,6 +17,7 @@ public class RabbitListenerService : BackgroundService
 
     private readonly string _rabbitUrl;
     private readonly string _rabbitUser;
+    private readonly string _rabbitPort;
     private readonly string _rabbitPass;
     private readonly string _orderExchange;
     private readonly string _paymentExchange;
@@ -35,9 +36,10 @@ public class RabbitListenerService : BackgroundService
         _logger = logger;
 
         // Recuperando configurações do appsettings
-        _rabbitUrl = _configuration["RabbitMQ:Url"] ?? "amqp://guest:guest@rabbitmq:5672";
-        _rabbitUser = _configuration["RabbitMQ:User"] ?? "guest";
-        _rabbitPass = _configuration["RabbitMQ:Pass"] ?? "guest";
+        _rabbitUrl = _configuration["RabbitMQ:Host"] ?? "rabbitmq";
+        _rabbitUser = _configuration["RabbitMQ:Username"] ?? "guest";
+        _rabbitPort = _configuration["RabbitMQ:Port"] ?? "5672";
+        _rabbitPass = _configuration["RabbitMQ:Password"] ?? "guest";
         _orderExchange = _configuration["RabbitMQ:OrderExchange"] ?? "order.exchange";
         _paymentExchange = _configuration["RabbitMQ:PaymentExchange"] ?? "payment.exchange";
         _orderPlacedQueue = _configuration["RabbitMQ:OrderPlacedQueue"] ?? "order.placed.payment-service";
@@ -52,11 +54,12 @@ public class RabbitListenerService : BackgroundService
     {
         try
         {
-            _logger.LogInformation("🔌 Conectando ao RabbitMQ em: {Url}...", _rabbitUrl);
+            _logger.LogInformation("🔌 Conectando ao RabbitMQ em: {Url} e {Port}...", _rabbitUrl, _rabbitPort);
 
             var factory = new ConnectionFactory
             {
                 HostName = _rabbitUrl,
+                Port = int.Parse(_rabbitPort),
                 UserName = _rabbitUser,
                 Password = _rabbitPass
             };
