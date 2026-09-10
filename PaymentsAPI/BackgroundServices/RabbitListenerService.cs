@@ -3,15 +3,22 @@ using System.Text.Json;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using PaymentsAPI.Events;
+using PaymentsAPI.Messaging;
 using PaymentsAPI.Services;
 
 namespace PaymentsAPI.BackgroundServices;
 
 public class RabbitListenerService : BackgroundService
 {
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     private readonly IConfiguration _configuration;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<RabbitListenerService> _logger;
+    private readonly IPaymentNotificationPublisher _notificationPublisher;
     private IConnection? _connection;
     private IChannel? _channel;
 
@@ -29,10 +36,12 @@ public class RabbitListenerService : BackgroundService
     public RabbitListenerService(
         IConfiguration configuration,
         IServiceProvider serviceProvider,
+        IPaymentNotificationPublisher notificationPublisher,
         ILogger<RabbitListenerService> logger)
     {
         _configuration = configuration;
         _serviceProvider = serviceProvider;
+        _notificationPublisher = notificationPublisher;
         _logger = logger;
 
         // Recuperando configurações do appsettings
@@ -122,7 +131,7 @@ public class RabbitListenerService : BackgroundService
             try
             {
                 // 1. Fazer o parse do evento
-                var orderEvent = JsonSerializer.Deserialize<OrderPlacedEvent>(message);
+                var orderEvent = JsonSerializer.Deserialize<OrderPlacedEvent>(message, SerializerOptions);
                 if (orderEvent == null || string.IsNullOrEmpty(orderEvent.OrderId))
                 {
                     throw new JsonException("Mensagem inválida recebida: Objeto desserializado está nulo ou sem ID.");
@@ -137,6 +146,7 @@ public class RabbitListenerService : BackgroundService
 
                     // 3. Publicar o resultado
                     await PublishPaymentProcessed(resultEvent);
+                    await _notificationPublisher.PublishAsync(resultEvent, stoppingToken);
                 }
 
                 // 4. Enviar confirmação de recebimento (Ack)
