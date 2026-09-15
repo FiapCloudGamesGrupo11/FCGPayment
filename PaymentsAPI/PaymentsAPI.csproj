@@ -7,10 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <PackageReference Include="AWSSDK.SQS" Version="4.0.3.8" />
+    <PackageReference Include="RabbitMQ.Client" Version="7.2.1" />
     <PackageReference Include="NewRelic.Agent" Version="10.54.0" />
     <PackageReference Include="NewRelic.Agent.Api" Version="10.54.0" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
-    <PackageReference Include="RabbitMQ.Client" Version="7.2.1" />
   </ItemGroup>
 
 </Project>
