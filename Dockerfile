@@ -24,4 +24,11 @@ RUN dotnet publish "PaymentsAPI.csproj" -c $BUILD_CONFIGURATION -o /app/publish 
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+
+ENV CORECLR_ENABLE_PROFILING=1
+ENV CORECLR_PROFILER="{36032161-FFC0-4B61-B559-F6C5D41BAE5A}"
+ENV CORECLR_NEWRELIC_HOME="/app/newrelic"
+ENV CORECLR_PROFILER_PATH="/app/newrelic/libNewRelicProfiler.so"
+ENV NEW_RELIC_LOG_DIRECTORY="/tmp/newrelic"
+
 ENTRYPOINT ["dotnet", "PaymentsAPI.dll"]
