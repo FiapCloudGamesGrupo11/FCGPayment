@@ -23,17 +23,23 @@ services:
     container_name: dotnet_payments_api
     build:
       context: .
-      dockerfile: PaymentsAPI/Dockerfile
+      dockerfile: Dockerfile
+    volumes:
+      - payment_data:/app/payment-data
     ports:
       - "8090:8090"
       - "8091:8091"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - RabbitMQ__Url=amqp://guest:guest@dotnet_payments_rabbitmq:5672
+      - ASPNETCORE_URLS=http://+:8090
+      - RabbitMQ__Host=rabbitmq
+      - AWS__ServiceUrl=http://host.docker.internal:4566
+      - PaymentDelivery__Directory=/app/payment-data
     depends_on:
       rabbitmq:
         condition: service_healthy
 
 volumes:
+  payment_data:
   rabbitmq_data:
 

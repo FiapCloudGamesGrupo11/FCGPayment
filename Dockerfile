@@ -22,6 +22,9 @@ RUN dotnet publish "PaymentsAPI.csproj" -c $BUILD_CONFIGURATION -o /app/publish 
 
 # Estágio final para execução da aplicação
 FROM base AS final
+USER root
+RUN mkdir -p /app/payment-data && chown app:app /app/payment-data
+USER app
 WORKDIR /app
 COPY --from=publish /app/publish .
 

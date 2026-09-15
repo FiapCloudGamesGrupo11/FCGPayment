@@ -86,7 +86,9 @@ public class RabbitListenerService : BackgroundService
             }
 
             _connection = await factory.CreateConnectionAsync();
-            _channel = await _connection.CreateChannelAsync();
+            _channel = await _connection.CreateChannelAsync(new CreateChannelOptions(
+                publisherConfirmationsEnabled: true,
+                publisherConfirmationTrackingEnabled: true));
 
             // Configurando Topologia (Exchanges, Queues e Bindings)
             _logger.LogInformation(" Configurando topologia do RabbitMQ...");
@@ -95,6 +97,8 @@ public class RabbitListenerService : BackgroundService
             await _channel.ExchangeDeclareAsync(_paymentExchange, ExchangeType.Fanout, durable: true);
 
             await _channel.QueueDeclareAsync(_orderPlacedQueue, durable: true, exclusive: false, autoDelete: false);
+            await _channel.QueueDeclareAsync(_paymentProcessedQueue, durable: true, exclusive: false, autoDelete: false);
+            await _channel.QueueBindAsync(_paymentProcessedQueue, _paymentExchange, _paymentProcessedRoutingKey);
             // _channel.QueueDeclare(_paymentProcessedQueue, durable: true, exclusive: false, autoDelete: false);
 
             // _channel.QueueBind(_orderPlacedQueue, _orderExchange, _orderPlacedRoutingKey);
@@ -172,16 +176,12 @@ public class RabbitListenerService : BackgroundService
             var paymentService =
                 scope.ServiceProvider.GetRequiredService<IPaymentService>();
 
-            var resultEvent =
-                await paymentService.ProcessPaymentAsync(orderEvent);
-
-            // Publica o resultado para o CatalogAPI pelo RabbitMQ.
-            await PublishPaymentProcessed(resultEvent);
-
-            // Publica a notificação no SQS para acionar a Lambda.
-            await _notificationPublisher.PublishAsync(
-                resultEvent,
-                CancellationToken.None);
+            var deliveries = scope.ServiceProvider.GetRequiredService<PaymentDeliveryService>();
+            await deliveries.DeliverAsync(
+                orderEvent,
+                () => paymentService.ProcessPaymentAsync(orderEvent),
+                PublishPaymentProcessed,
+                result => _notificationPublisher.PublishAsync(result, CancellationToken.None));
 
             // Confirma a mensagem somente depois das duas publicações.
             await _channel.BasicAckAsync(
@@ -208,6 +208,8 @@ public class RabbitListenerService : BackgroundService
                 ex,
                 "[RabbitListenerService] Erro ao processar o evento.");
 
+            // Avoid a tight retry loop while a destination is unavailable.
+            await Task.Delay(TimeSpan.FromSeconds(5));
             await _channel.BasicNackAsync(
                 ea.DeliveryTag,
                 multiple: false,
@@ -230,7 +232,7 @@ public class RabbitListenerService : BackgroundService
 
     private async Task PublishPaymentProcessed(PaymentProcessedEvent resultEvent)
     {
-        if (_channel == null) return;
+        if (_channel == null) throw new InvalidOperationException("Canal RabbitMQ indisponível.");
 
         _logger.LogInformation(" [RabbitListenerService] Publicando PaymentProcessedEvent para o Pedido: {OrderId} (Status: {Status})", resultEvent.OrderId, resultEvent.Status);
 
@@ -247,6 +249,7 @@ public class RabbitListenerService : BackgroundService
 
         var properties = new BasicProperties
         {
+            MessageId = resultEvent.PaymentId,
             Persistent = true,
             ContentType = "application/json",
             Headers = headers
@@ -255,7 +258,7 @@ public class RabbitListenerService : BackgroundService
         await _channel.BasicPublishAsync(
             exchange: _paymentExchange,
             routingKey: _paymentProcessedRoutingKey,
-            mandatory: false,
+            mandatory: true,
             basicProperties: properties,
             body: body
         );

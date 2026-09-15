@@ -16,6 +16,7 @@ builder.Services.AddSwaggerGen();
 
 // Registra nosso serviço de pagamento e o Listener do RabbitMQ
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddSingleton<PaymentDeliveryService>();
 builder.Services.AddSingleton<IAmazonSQS>(_ =>
 {
     var region = builder.Configuration["AWS:Region"] ?? "us-east-1";

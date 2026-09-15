@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PaymentsAPI", "PaymentsAPI\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PaymentsAPI.Simulator", "PaymentsAPI.Simulator\PaymentsAPI.Simulator.csproj", "{084DFACC-69F2-482E-BF35-C260C9FF6B41}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PaymentsAPI.Tests", "PaymentsAPI.Tests\PaymentsAPI.Tests.csproj", "{97378DF2-FBB5-4F4F-BF34-8E4A8C664620}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -41,6 +43,18 @@ Global
 		{084DFACC-69F2-482E-BF35-C260C9FF6B41}.Release|x64.Build.0 = Release|Any CPU
 		{084DFACC-69F2-482E-BF35-C260C9FF6B41}.Release|x86.ActiveCfg = Release|Any CPU
 		{084DFACC-69F2-482E-BF35-C260C9FF6B41}.Release|x86.Build.0 = Release|Any CPU
+		{97378DF2-FBB5-4F4F-BF34-8E4A8C664620}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{97378DF2-FBB5-4F4F-BF34-8E4A8C664620}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{97378DF2-FBB5-4F4F-BF34-8E4A8C664620}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{97378DF2-FBB5-4F4F-BF34-8E4A8C664620}.Debug|x64.Build.0 = Debug|Any CPU
+		{97378DF2-FBB5-4F4F-BF34-8E4A8C664620}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{97378DF2-FBB5-4F4F-BF34-8E4A8C664620}.Debug|x86.Build.0 = Debug|Any CPU
+		{97378DF2-FBB5-4F4F-BF34-8E4A8C664620}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{97378DF2-FBB5-4F4F-BF34-8E4A8C664620}.Release|Any CPU.Build.0 = Release|Any CPU
+		{97378DF2-FBB5-4F4F-BF34-8E4A8C664620}.Release|x64.ActiveCfg = Release|Any CPU
+		{97378DF2-FBB5-4F4F-BF34-8E4A8C664620}.Release|x64.Build.0 = Release|Any CPU
+		{97378DF2-FBB5-4F4F-BF34-8E4A8C664620}.Release|x86.ActiveCfg = Release|Any CPU
+		{97378DF2-FBB5-4F4F-BF34-8E4A8C664620}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
