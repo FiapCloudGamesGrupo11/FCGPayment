@@ -3,15 +3,23 @@ using System.Text.Json;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using PaymentsAPI.Events;
+using PaymentsAPI.Messaging;
 using PaymentsAPI.Services;
+using NewRelic.Api.Agent;
 
 namespace PaymentsAPI.BackgroundServices;
 
 public class RabbitListenerService : BackgroundService
 {
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     private readonly IConfiguration _configuration;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<RabbitListenerService> _logger;
+    private readonly IPaymentNotificationPublisher _notificationPublisher;
     private IConnection? _connection;
     private IChannel? _channel;
 
@@ -29,10 +37,12 @@ public class RabbitListenerService : BackgroundService
     public RabbitListenerService(
         IConfiguration configuration,
         IServiceProvider serviceProvider,
+        IPaymentNotificationPublisher notificationPublisher,
         ILogger<RabbitListenerService> logger)
     {
         _configuration = configuration;
         _serviceProvider = serviceProvider;
+        _notificationPublisher = notificationPublisher;
         _logger = logger;
 
         // Recuperando configurações do appsettings
@@ -112,17 +122,48 @@ public class RabbitListenerService : BackgroundService
         }
 
         var consumer = new AsyncEventingBasicConsumer(_channel);
-        consumer.ReceivedAsync += async (model, ea) =>
+        consumer.ReceivedAsync += ProcessMessageAsync;
+
+        _channel.BasicConsumeAsync(queue: _orderPlacedQueue, autoAck: false, consumer: consumer);
+        _logger.LogInformation("[RabbitListenerService] Iniciando consumo da fila: '{Queue}'", _orderPlacedQueue);
+
+        return Task.CompletedTask;
+    }
+
+    [Transaction]
+    private async Task ProcessMessageAsync(object model, BasicDeliverEventArgs ea)
+    {
+        if (_channel == null)
+            return;
+
+        var transaction = NewRelic.Api.Agent.NewRelic
+            .GetAgent()
+            .CurrentTransaction;
+
+        if (ea.BasicProperties.Headers is { Count: > 0 } headers)
         {
-            var body = ea.Body.ToArray();
-            var message = Encoding.UTF8.GetString(body);
+            transaction.AcceptDistributedTraceHeaders(
+                headers,
+                GetHeaderValues,
+                TransportType.Queue);
+        }
 
-            _logger.LogInformation("[RabbitListenerService] Nova mensagem recebida da fila '{Queue}'", _orderPlacedQueue);
+        var body = ea.Body.ToArray();
+        var message = Encoding.UTF8.GetString(body);
 
+        _logger.LogInformation(
+            "[RabbitListenerService] Nova mensagem recebida da fila '{Queue}'",
+            _orderPlacedQueue);
+
+        try
+        {
+            var orderEvent = JsonSerializer.Deserialize<OrderPlacedEvent>(message);
+
+            if (orderEvent == null || string.IsNullOrEmpty(orderEvent.OrderId))
             try
             {
                 // 1. Fazer o parse do evento
-                var orderEvent = JsonSerializer.Deserialize<OrderPlacedEvent>(message);
+                var orderEvent = JsonSerializer.Deserialize<OrderPlacedEvent>(message, SerializerOptions);
                 if (orderEvent == null || string.IsNullOrEmpty(orderEvent.OrderId))
                 {
                     throw new JsonException("Mensagem inválida recebida: Objeto desserializado está nulo ou sem ID.");
@@ -137,6 +178,7 @@ public class RabbitListenerService : BackgroundService
 
                     // 3. Publicar o resultado
                     await PublishPaymentProcessed(resultEvent);
+                    await _notificationPublisher.PublishAsync(resultEvent, stoppingToken);
                 }
 
                 // 4. Enviar confirmação de recebimento (Ack)
@@ -150,16 +192,62 @@ public class RabbitListenerService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ [RabbitListenerService] Erro ao processar o evento. Reencaminhando mensagem para a fila...");
-                // Reencaminha a mensagem (Requeue = true) em caso de erro temporário de infraestrutura
-                await _channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true);
+                throw new JsonException(
+                    "Mensagem inválida recebida: objeto nulo ou sem ID.");
             }
-        };
 
-        _channel.BasicConsumeAsync(queue: _orderPlacedQueue, autoAck: false, consumer: consumer);
-        _logger.LogInformation("[RabbitListenerService] Iniciando consumo da fila: '{Queue}'", _orderPlacedQueue);
+            using var scope = _serviceProvider.CreateScope();
 
-        return Task.CompletedTask;
+            var paymentService =
+                scope.ServiceProvider.GetRequiredService<IPaymentService>();
+
+            var resultEvent =
+                await paymentService.ProcessPaymentAsync(orderEvent);
+
+            await PublishPaymentProcessed(resultEvent);
+
+            await _channel.BasicAckAsync(
+                ea.DeliveryTag,
+                multiple: false);
+
+            _logger.LogInformation(
+                "[RabbitListenerService] Mensagem do pedido {OrderId} confirmada.",
+                orderEvent.OrderId);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(
+                ex,
+                "[RabbitListenerService] Mensagem inválida descartada.");
+
+            await _channel.BasicAckAsync(
+                ea.DeliveryTag,
+                multiple: false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "[RabbitListenerService] Erro ao processar o evento.");
+
+            await _channel.BasicNackAsync(
+                ea.DeliveryTag,
+                multiple: false,
+                requeue: true);
+        }
+    }
+
+    private static IEnumerable<string> GetHeaderValues(
+        IDictionary<string, object?> headers,
+        string key)
+    {
+        if (!headers.TryGetValue(key, out var value) || value == null)
+            return Array.Empty<string>();
+
+        if (value is byte[] bytes)
+            return new[] { Encoding.UTF8.GetString(bytes) };
+
+        return new[] { value.ToString() ?? string.Empty };
     }
 
     private async Task PublishPaymentProcessed(PaymentProcessedEvent resultEvent)
@@ -171,11 +259,20 @@ public class RabbitListenerService : BackgroundService
         var json = JsonSerializer.Serialize(resultEvent);
         var body = Encoding.UTF8.GetBytes(json);
 
+        var headers = new Dictionary<string, object?>();
+
+        NewRelic.Api.Agent.NewRelic.GetAgent()
+            .CurrentTransaction
+            .InsertDistributedTraceHeaders(
+                headers,
+                (carrier, key, value) => carrier[key] = value);
+
         var properties = new BasicProperties
-                            {
-                                Persistent = true,
-                                ContentType = "application/json"
-                            };
+        {
+            Persistent = true,
+            ContentType = "application/json",
+            Headers = headers
+        };
 
         await _channel.BasicPublishAsync(
             exchange: _paymentExchange,

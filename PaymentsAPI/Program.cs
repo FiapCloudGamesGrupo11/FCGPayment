@@ -1,4 +1,8 @@
+using Amazon;
+using Amazon.Runtime;
+using Amazon.SQS;
 using PaymentsAPI.BackgroundServices;
+using PaymentsAPI.Messaging;
 using PaymentsAPI.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -12,6 +16,25 @@ builder.Services.AddSwaggerGen();
 
 // Registra nosso serviço de pagamento e o Listener do RabbitMQ
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddSingleton<IAmazonSQS>(_ =>
+{
+    var region = builder.Configuration["AWS:Region"] ?? "us-east-1";
+    var serviceUrl = builder.Configuration["AWS:ServiceUrl"];
+
+    if (!string.IsNullOrWhiteSpace(serviceUrl))
+    {
+        return new AmazonSQSClient(
+            new BasicAWSCredentials("test", "test"),
+            new AmazonSQSConfig
+            {
+                ServiceURL = serviceUrl,
+                AuthenticationRegion = region
+            });
+    }
+
+    return new AmazonSQSClient(RegionEndpoint.GetBySystemName(region));
+});
+builder.Services.AddSingleton<IPaymentNotificationPublisher, SqsPaymentNotificationPublisher>();
 builder.Services.AddHostedService<RabbitListenerService>();
 
 var app = builder.Build();

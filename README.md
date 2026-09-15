@@ -2,9 +2,9 @@
 
 ## Descrição
 
-O **FCGPayment** é um microsserviço responsável por processar pagamentos de compras de jogos na plataforma **FIAP Cloud Games (FCG)**. Ele consome eventos de pedidos do microsserviço FCGCatalog através de RabbitMQ, valida as transações, simula a comunicação com gateways de pagamento e publica eventos de confirmação de pagamento para outros microsserviços.
+O **FCGPayment** é um microsserviço responsável por processar pagamentos de compras de jogos na plataforma **FIAP Cloud Games (FCG)**. Ele consome eventos de pedidos do microsserviço FCGCatalog através de RabbitMQ, valida as transações e simula a comunicação com gateways de pagamento. O resultado continua sendo publicado no RabbitMQ para o catálogo e também é enviado à fila SQS `notification-payment-processed`, executada localmente pelo LocalStack, para acionar a Lambda de notificações.
 
-Este microsserviço utiliza **RabbitMQ** para comunicação assíncrona orientada por eventos, processando pedidos em tempo real com regras de negócio sofisticadas para validação e simulação de pagamentos.
+Este microsserviço utiliza **RabbitMQ** no fluxo com o catálogo e **SQS via LocalStack** no fluxo serverless de notificações.
 
 ---
 

@@ -7,8 +7,7 @@ namespace PaymentsAPI.Simulator;
 class Program
 {
     private static readonly string RabbitUrl = "amqp://guest:guest@localhost:5672";
-    private static readonly string OrderExchange = "order.exchange";
-    private static readonly string OrderPlacedRoutingKey = "order.placed";
+    private static readonly string OrderPlacedQueue = "order-placed";
 
     // Jogos simulados
     private static readonly (string Id, string Name, decimal Price)[] Games = new[]
@@ -30,8 +29,12 @@ class Program
             using var connection = factory.CreateConnection();
             using var channel = connection.CreateModel();
 
-            // Declarando a exchange de pedidos
-            channel.ExchangeDeclare(OrderExchange, ExchangeType.Topic, durable: true);
+            // Usa a mesma fila direta utilizada pelo FCGCatalog.
+            channel.QueueDeclare(
+                queue: OrderPlacedQueue,
+                durable: true,
+                exclusive: false,
+                autoDelete: false);
 
             // Escolhe um jogo aleatório
             var random = new Random();
@@ -83,13 +86,13 @@ class Program
 
             // Publica o evento
             channel.BasicPublish(
-                exchange: OrderExchange,
-                routingKey: OrderPlacedRoutingKey,
+                exchange: "",
+                routingKey: OrderPlacedQueue,
                 basicProperties: properties,
                 body: body
             );
 
-            Console.WriteLine($" [Simulador de Pedidos] Evento 'OrderPlacedEvent' publicado na exchange '{OrderExchange}'!");
+            Console.WriteLine($" [Simulador de Pedidos] Evento 'OrderPlacedEvent' publicado na fila '{OrderPlacedQueue}'!");
             Thread.Sleep(500); // Aguarda a mensagem ser despachada
         }
         catch (Exception ex)
