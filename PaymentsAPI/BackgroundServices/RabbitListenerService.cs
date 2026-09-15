@@ -157,40 +157,11 @@ public class RabbitListenerService : BackgroundService
 
         try
         {
-            var orderEvent = JsonSerializer.Deserialize<OrderPlacedEvent>(message);
+            var orderEvent = JsonSerializer.Deserialize<OrderPlacedEvent>(
+                message,
+                SerializerOptions);
 
             if (orderEvent == null || string.IsNullOrEmpty(orderEvent.OrderId))
-            try
-            {
-                // 1. Fazer o parse do evento
-                var orderEvent = JsonSerializer.Deserialize<OrderPlacedEvent>(message, SerializerOptions);
-                if (orderEvent == null || string.IsNullOrEmpty(orderEvent.OrderId))
-                {
-                    throw new JsonException("Mensagem inválida recebida: Objeto desserializado está nulo ou sem ID.");
-                }
-
-                // 2. Processar o pagamento
-                // IPaymentService é registrado como Scoped, portanto criamos um escopo para resolvê-lo
-                using (var scope = _serviceProvider.CreateScope())
-                {
-                    var paymentService = scope.ServiceProvider.GetRequiredService<IPaymentService>();
-                    var resultEvent = await paymentService.ProcessPaymentAsync(orderEvent);
-
-                    // 3. Publicar o resultado
-                    await PublishPaymentProcessed(resultEvent);
-                    await _notificationPublisher.PublishAsync(resultEvent, stoppingToken);
-                }
-
-                // 4. Enviar confirmação de recebimento (Ack)
-                await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
-                _logger.LogInformation(" [RabbitListenerService] Mensagem do Pedido {OrderId} confirmada (ACK).\n", orderEvent.OrderId);
-            }
-            catch (JsonException jsonEx)
-            {
-                _logger.LogError(jsonEx, " [RabbitListenerService] Falha de desserialização. Descartando mensagem (ACK de descarte)...");
-                await _channel.BasicAckAsync(ea.DeliveryTag, multiple: false); // Descarta mensagem malformada
-            }
-            catch (Exception ex)
             {
                 throw new JsonException(
                     "Mensagem inválida recebida: objeto nulo ou sem ID.");
@@ -204,8 +175,15 @@ public class RabbitListenerService : BackgroundService
             var resultEvent =
                 await paymentService.ProcessPaymentAsync(orderEvent);
 
+            // Publica o resultado para o CatalogAPI pelo RabbitMQ.
             await PublishPaymentProcessed(resultEvent);
 
+            // Publica a notificação no SQS para acionar a Lambda.
+            await _notificationPublisher.PublishAsync(
+                resultEvent,
+                CancellationToken.None);
+
+            // Confirma a mensagem somente depois das duas publicações.
             await _channel.BasicAckAsync(
                 ea.DeliveryTag,
                 multiple: false);
