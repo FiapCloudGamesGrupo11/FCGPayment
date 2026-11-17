@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - feature/**
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-test-container:
+    runs-on: ubuntu-latest
+    outputs:
+      image-uri: ${{ steps.push-image.outputs.image-uri }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore PaymentsAPI.sln -p:NuGetAudit=true -warnaserror:NU1901,NU1902,NU1903,NU1904
+
+      - name: Build
+        run: dotnet build PaymentsAPI.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test PaymentsAPI.sln --configuration Release --no-build --no-restore
+
+      - name: Build container image
+        run: docker build --platform linux/amd64 --provenance=false --tag fcg-payment:${{ github.sha }} .
+
+      - name: Diagnosticar Claims OIDC
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/fase-4-ci')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = await core.getIDToken('sts.amazonaws.com');
+
+            const payload = JSON.parse(
+              Buffer.from(token.split('.')[1], 'base64url').toString()
+            );
+
+            console.log('Issuer:', payload.iss);
+            console.log('Audience:', payload.aud);
+            console.log('Subject:', payload.sub);
+
+      - name: Autenticar na AWS via OIDC
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/fase-4-ci')
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::432342421632:role/GithubActionsOidcRole
+          aws-region: us-east-1
+
+      - name: Login no Amazon ECR
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/fase-4-ci')
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Publicar imagem no Amazon ECR
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/fase-4-ci')
+        id: push-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: fcg-payments
+          IMAGE_TAG: ${{ github.ref == 'refs/heads/main' && 'latest' || '1.0.0' }}
+          LOCAL_IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker tag "fcg-payment:$LOCAL_IMAGE_TAG" "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" | tee "$RUNNER_TEMP/ecr-push.log"
+          digest="$(awk '$2 == "digest:" { print $3 }' "$RUNNER_TEMP/ecr-push.log")"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Não foi possível obter o digest da imagem publicada."
+            exit 1
+          fi
+          echo "image-uri=$ECR_REGISTRY/$ECR_REPOSITORY@$digest" >> "$GITHUB_OUTPUT"
+
+  deploy-to-eks:
+    needs: build-test-container
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/fase-4-ci')
+    concurrency:
+      group: fcg-payment-eks-deploy
+      cancel-in-progress: false
+
+    steps:
+      - name: Autenticar na AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::432342421632:role/GithubActionsOidcRole
+          aws-region: us-east-1
+
+      - name: Configurar contexto do Amazon EKS
+        run: |
+          aws eks update-kubeconfig --name fcg-prod-cluster --region us-east-1
+
+      - name: Atualizar imagem no Kubernetes
+        env:
+          IMAGE_URI: ${{ needs.build-test-container.outputs.image-uri }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$IMAGE_URI" ]]; then
+            echo "::error::O CI não forneceu o digest da imagem publicada."
+            exit 1
+          fi
+          kubectl set image deployment/payments-api "payments-api=$IMAGE_URI" -n default
+          kubectl rollout status deployment/payments-api -n default --timeout=5m
