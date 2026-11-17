@@ -9,6 +9,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Adiciona serviços ao contêiner do DI
 builder.Services.AddControllers();
+builder.Services.AddHealthChecks();
 
 // Registra os serviços do Swagger/OpenAPI
 builder.Services.AddEndpointsApiExplorer();
@@ -55,5 +56,6 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHealthChecks("/health");
 
 app.Run();
